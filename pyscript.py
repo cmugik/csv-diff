@@ -26,15 +26,15 @@ def create_matchbooks(our_df, bank_df, ours_is_credit):
     results = []
     our_index = bank_index = 0
 
-    while our_index < len(our_column) and bank_index < len(bank_column):
+    while our_index < len(our_values) and bank_index < len(bank_values):
         our_val = our_values[our_index]
         bank_val = bank_values[bank_index]
 
         if our_val == bank_val:
             if our_val == 0:
                 break
-            our_row = our_df.loc[our_indices[our_index]]
-            bank_row = bank_df.loc[bank_indices[bank_index]]
+            our_row = our_df.loc[our_indices[our_index]]     # TODO is this robust to identical values ?
+            bank_row = bank_df.loc[bank_indices[bank_index]] # ^
             results.append({
                 'Our_Date': our_row['Date'],
                 'Our_Comment': our_row['Comment'],
