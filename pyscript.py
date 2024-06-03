@@ -140,6 +140,7 @@ def save_to_excel_with_color(df, filename):
 
 import tkinter as tk
 from tkinter import filedialog
+from tkinter import messagebox
 import pandas as pd
 import re
 import os
@@ -196,7 +197,6 @@ class CSVMatcherApp:
           match1 = re.search(month_pattern, self.our_file_name, re.IGNORECASE)
           match2 = re.search(month_pattern, self.bank_file_name, re.IGNORECASE)
           if match1 and match2 and match1.group(0) == match2.group(0):
-             print("test")
              self.file_month=match1.group(0)
           self.display_columns(self.bank_csv, 'bank')
           self.check_files_loaded()
@@ -214,6 +214,10 @@ class CSVMatcherApp:
 
         matched_df = create_matchbooks(self.our_csv, self.bank_csv, our_columns, bank_columns, False)
         save_to_excel_with_color(matched_df, f"Matched_Output_OurDebits-TheirCredits_{self.file_month}.xlsx")
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showinfo("Operation Complete", "The CSV matching operation has completed successfully!")
+        root.destroy()
 
     def display_columns(self, df, col_type):
         columns = df.columns.tolist()
