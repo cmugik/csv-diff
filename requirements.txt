@@ -2,3 +2,5 @@ pandas
 openpyxl
 tk
 pyinstaller
+re
+numpy
