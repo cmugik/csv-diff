@@ -2,6 +2,7 @@ import os
 import re
 from tkinter import messagebox
 from tkinter import filedialog
+from datetime import datetime
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import pandas as pd
@@ -27,106 +28,179 @@ def convert_and_sort(df, column_name):
 
 
 def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit):
+    from datetime import datetime
+
+    # Determine direction
     our_value_column, bank_value_column = (
-        'Credits', 'Debits') if ours_is_credit else ('Debits', 'Credits')
-    our_values, our_indices = convert_and_sort(our_df, our_value_column)
-    bank_values, bank_indices = convert_and_sort(bank_df, bank_value_column)
+        "Credits",
+        "Debits",
+    ) if ours_is_credit else ("Debits", "Credits")
+
+    # Clean numeric values
+    our_df[our_value_column] = our_df[our_value_column].replace(
+        "[$,]", "", regex=True
+    ).astype(float)
+    bank_df[bank_value_column] = bank_df[bank_value_column].replace(
+        "[$,]", "", regex=True
+    ).astype(float)
+
+    # Identify possible date columns
+    possible_date_cols_our = [c for c in our_df.columns if "date" in c.lower()]
+    possible_date_cols_bank = [
+        c for c in bank_df.columns if "date" in c.lower()]
+    our_date_col = possible_date_cols_our[0] if possible_date_cols_our else None
+    bank_date_col = possible_date_cols_bank[0] if possible_date_cols_bank else None
+
+    # Parse dates explicitly as MM/DD/YYYY
+    def parse_mmddyyyy(series):
+        try:
+            return pd.to_datetime(series, format="%m/%d/%Y", errors="raise")
+        except Exception:
+            return pd.to_datetime(series, format="%m/%d/%y", errors="coerce")
+
+    if our_date_col and bank_date_col:
+        our_df[our_date_col] = parse_mmddyyyy(our_df[our_date_col])
+        bank_df[bank_date_col] = parse_mmddyyyy(bank_df[bank_date_col])
+
+    # Group by value
+    our_groups = {val: sub_df for val,
+                  sub_df in our_df.groupby(our_value_column)}
+    bank_groups = {val: sub_df for val,
+                   sub_df in bank_df.groupby(bank_value_column)}
 
     results = []
-    our_index = bank_index = 0
+    all_values = sorted(set(our_groups.keys()) | set(
+        bank_groups.keys()), reverse=True)
 
-    while our_index < len(our_values) and bank_index < len(bank_values):
-        our_val = our_values[our_index]
-        bank_val = bank_values[bank_index]
+    def fmt_date(dt):
+        return dt.strftime("%m/%d/%Y") if pd.notnull(dt) else "XXX"
 
-        if our_val == bank_val:
-            if our_val == 0:
-                break
-            # TODO is this robust to identical values ?
-            our_row = our_df.loc[our_indices[our_index]]
-            bank_row = bank_df.loc[bank_indices[bank_index]]  # ^
-            result_row = {
-                'Our_Value': our_val,
-                'Bank_Value': bank_val,
-                'Match': 'MATCH'
+    # Iterate through all transaction values
+    for val in all_values:
+        our_group = our_groups.get(val, pd.DataFrame())
+        bank_group = bank_groups.get(val, pd.DataFrame())
+
+        # Case A: value only in bank file
+        if our_group.empty and not bank_group.empty:
+            for _, bank_row in bank_group.iterrows():
+                row = {
+                    "Our_Value": "XXX",
+                    "Bank_Value": val,
+                    "Match": "MISMATCH",
+                }
+                if our_date_col:
+                    row[f"Our_{our_date_col}"] = "XXX"
+                if bank_date_col:
+                    row[f"Bank_{bank_date_col}"] = fmt_date(
+                        bank_row[bank_date_col])
+                for col in our_columns:
+                    if col not in ["Credits", "Debits", our_date_col]:
+                        row[f"Our_{col}"] = "XXX"
+                for col in bank_columns:
+                    if col not in ["Credits", "Debits", bank_date_col]:
+                        row[f"Bank_{col}"] = bank_row[bank_columns[col]]
+                results.append(row)
+            continue
+
+        # Case B: value only in our file
+        if bank_group.empty and not our_group.empty:
+            for _, our_row in our_group.iterrows():
+                row = {
+                    "Our_Value": val,
+                    "Bank_Value": "XXX",
+                    "Match": "MISMATCH",
+                }
+                if our_date_col:
+                    row[f"Our_{our_date_col}"] = fmt_date(
+                        our_row[our_date_col])
+                if bank_date_col:
+                    row[f"Bank_{bank_date_col}"] = "XXX"
+                for col in our_columns:
+                    if col not in ["Credits", "Debits", our_date_col]:
+                        row[f"Our_{col}"] = our_row[our_columns[col]]
+                for col in bank_columns:
+                    if col not in ["Credits", "Debits", bank_date_col]:
+                        row[f"Bank_{col}"] = "XXX"
+                results.append(row)
+            continue
+
+        # Case C: both sides have this value, match by date
+        matched_bank_indices = set()
+        for _, our_row in our_group.iterrows():
+            our_date = our_row[our_date_col] if our_date_col else None
+            match_row = None
+
+            for bank_idx, bank_row in bank_group.iterrows():
+                bank_date = bank_row[bank_date_col] if bank_date_col else None
+                if (
+                    bank_idx not in matched_bank_indices
+                    and pd.notnull(our_date)
+                    and pd.notnull(bank_date)
+                    and our_date.date() == bank_date.date()
+                ):
+                    match_row = bank_row
+                    matched_bank_indices.add(bank_idx)
+                    break
+
+            if match_row is not None:
+                row = {
+                    "Our_Value": val,
+                    "Bank_Value": val,
+                    "Match": "MATCH",
+                }
+                if our_date_col:
+                    row[f"Our_{our_date_col}"] = fmt_date(
+                        our_row[our_date_col])
+                if bank_date_col:
+                    row[f"Bank_{bank_date_col}"] = fmt_date(
+                        match_row[bank_date_col])
+                for col in our_columns:
+                    if col not in ["Credits", "Debits", our_date_col]:
+                        row[f"Our_{col}"] = our_row[our_columns[col]]
+                for col in bank_columns:
+                    if col not in ["Credits", "Debits", bank_date_col]:
+                        row[f"Bank_{col}"] = match_row[bank_columns[col]]
+                results.append(row)
+            else:
+                row = {
+                    "Our_Value": val,
+                    "Bank_Value": "XXX",
+                    "Match": "MISMATCH",
+                }
+                if our_date_col:
+                    row[f"Our_{our_date_col}"] = fmt_date(
+                        our_row[our_date_col])
+                if bank_date_col:
+                    row[f"Bank_{bank_date_col}"] = "XXX"
+                for col in our_columns:
+                    if col not in ["Credits", "Debits", our_date_col]:
+                        row[f"Our_{col}"] = our_row[our_columns[col]]
+                for col in bank_columns:
+                    if col not in ["Credits", "Debits", bank_date_col]:
+                        row[f"Bank_{col}"] = "XXX"
+                results.append(row)
+
+        # Case D: unmatched bank rows remaining
+        unmatched_banks = bank_group.loc[~bank_group.index.isin(
+            matched_bank_indices)]
+        for _, bank_row in unmatched_banks.iterrows():
+            row = {
+                "Our_Value": "XXX",
+                "Bank_Value": val,
+                "Match": "MISMATCH",
             }
+            if our_date_col:
+                row[f"Our_{our_date_col}"] = "XXX"
+            if bank_date_col:
+                row[f"Bank_{bank_date_col}"] = fmt_date(
+                    bank_row[bank_date_col])
             for col in our_columns:
-                if col not in ['Credits', 'Debits']:
-                    result_row[f'Our_{col}'] = our_row[our_columns[col]]
+                if col not in ["Credits", "Debits", our_date_col]:
+                    row[f"Our_{col}"] = "XXX"
             for col in bank_columns:
-                if col not in ['Credits', 'Debits']:
-                    result_row[f'Bank_{col}'] = bank_row[bank_columns[col]]
-            results.append(result_row)
-            our_index += 1
-            bank_index += 1
-        elif our_val > bank_val:
-            our_row = our_df.loc[our_indices[our_index]]
-            result_row = {
-                'Our_Value': our_val,
-                'Bank_Value': 'XXX',
-                'Match': 'MISMATCH'
-            }
-            for col in our_columns:
-                if col not in ['Credits', 'Debits']:
-                    result_row[f'Our_{col}'] = our_row[our_columns[col]]
-            for col in bank_columns:
-                if col not in ['Credits', 'Debits']:
-                    result_row[f'Bank_{col}'] = 'XXX'
-            results.append(result_row)
-            our_index += 1
-        else:
-            bank_row = bank_df.loc[bank_indices[bank_index]]
-            result_row = {
-                'Our_Value': 'XXX',
-                'Bank_Value': bank_val,
-                'Match': 'MISMATCH'
-            }
-            for col in our_columns:
-                if col not in ['Credits', 'Debits']:
-                    result_row[f'Our_{col}'] = 'XXX'
-            for col in bank_columns:
-                if col not in ['Credits', 'Debits']:
-                    result_row[f'Bank_{col}'] = bank_row[bank_columns[col]]
-            results.append(result_row)
-            bank_index += 1
-
-    # Remaining entries from our_value_column
-    while our_index < len(our_values):
-        if our_values[our_index] == 0:
-            break
-        our_row = our_df.loc[our_indices[our_index]]
-        result_row = {
-            'Our_Value': our_row[our_value_column],
-            'Bank_Value': 'XXX',
-            'Match': 'MISMATCH'
-        }
-        for col in our_columns:
-            if col not in ['Credits', 'Debits']:
-                result_row[f'Our_{col}'] = our_row[our_columns[col]]
-        for col in bank_columns:
-            if col not in ['Credits', 'Debits']:
-                result_row[f'Bank_{col}'] = 'XXX'
-        results.append(result_row)
-        our_index += 1
-
-    # Remaining entries from bank_value_column
-    while bank_index < len(bank_values):
-        if bank_values[bank_index] == 0:
-            break
-        bank_row = bank_df.loc[bank_indices[bank_index]]
-        result_row = {
-            'Our_Value': 'XXX',
-            'Bank_Value': bank_row[bank_value_column],
-            'Match': 'MISMATCH'
-        }
-        for col in our_columns:
-            if col not in ['Credits', 'Debits']:
-                result_row[f'Our_{col}'] = 'XXX'
-        for col in bank_columns:
-            if col not in ['Credits', 'Debits']:
-                result_row[f'Bank_{col}'] = bank_row[bank_columns[col]]
-        results.append(result_row)
-        bank_index += 1
+                if col not in ["Credits", "Debits", bank_date_col]:
+                    row[f"Bank_{col}"] = bank_row[bank_columns[col]]
+            results.append(row)
 
     return pd.DataFrame(results)
 
