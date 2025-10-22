@@ -29,6 +29,7 @@ def convert_and_sort(df, column_name):
 
 def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit):
     from datetime import datetime
+    import pandas as pd
 
     our_value_column, bank_value_column = (
         "Credits",
@@ -116,19 +117,38 @@ def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit
                             row[f"Bank_{col}"] = bank_row[bank_columns[col]]
                     results.append(row)
 
-        # --- 5b: Match remaining by value (ignore date) ---
+        # --- 5b: Match remaining by value and closest date ---
         our_unmatched = our_group.loc[~our_group.index.isin(
             matched_our_indices)]
         bank_unmatched = bank_group.loc[~bank_group.index.isin(
             matched_bank_indices)]
 
+        # Convert to list to allow modification during iteration
+        bank_unmatched_list = list(bank_unmatched.iterrows())
+
         for our_idx, our_row in our_unmatched.iterrows():
-            if bank_unmatched.empty:
+            if not bank_unmatched_list:
                 break
-            bank_idx, bank_row = bank_unmatched.iloc[0].name, bank_unmatched.iloc[0]
+
+            our_date = our_row[our_date_col] if our_date_col else None
+
+            # Find closest date match
+            best_match_idx = 0
+            best_date_diff = float('inf')
+
+            if our_date_col and bank_date_col and pd.notnull(our_date):
+                for i, (bank_idx, bank_row) in enumerate(bank_unmatched_list):
+                    bank_date = bank_row[bank_date_col]
+                    if pd.notnull(bank_date):
+                        date_diff = abs((our_date - bank_date).days)
+                        if date_diff < best_date_diff:
+                            best_date_diff = date_diff
+                            best_match_idx = i
+
+            # Use the best match (or first if no dates available)
+            bank_idx, bank_row = bank_unmatched_list.pop(best_match_idx)
             matched_our_indices.add(our_idx)
             matched_bank_indices.add(bank_idx)
-            bank_unmatched = bank_unmatched.iloc[1:]
 
             row = {
                 "Our_Value": val,
