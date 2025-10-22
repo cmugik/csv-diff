@@ -44,14 +44,19 @@ def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit
         "[$,]", "", regex=True
     ).astype(float)
 
-    # --- Step 2: Identify date columns ---
-    possible_date_cols_our = [c for c in our_df.columns if "date" in c.lower()]
+    # --- Step 2: Filter out zero values BEFORE grouping ---
+    our_df_filtered = our_df[our_df[our_value_column] > 0].copy()
+    bank_df_filtered = bank_df[bank_df[bank_value_column] > 0].copy()
+
+    # --- Step 3: Identify date columns ---
+    possible_date_cols_our = [
+        c for c in our_df_filtered.columns if "date" in c.lower()]
     possible_date_cols_bank = [
-        c for c in bank_df.columns if "date" in c.lower()]
+        c for c in bank_df_filtered.columns if "date" in c.lower()]
     our_date_col = possible_date_cols_our[0] if possible_date_cols_our else None
     bank_date_col = possible_date_cols_bank[0] if possible_date_cols_bank else None
 
-    # --- Step 3: Parse dates explicitly as MM/DD/YYYY ---
+    # --- Step 4: Parse dates explicitly as MM/DD/YYYY ---
     def parse_mmddyyyy(series):
         try:
             return pd.to_datetime(series, format="%m/%d/%Y", errors="raise")
@@ -59,14 +64,16 @@ def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit
             return pd.to_datetime(series, format="%m/%d/%y", errors="coerce")
 
     if our_date_col and bank_date_col:
-        our_df[our_date_col] = parse_mmddyyyy(our_df[our_date_col])
-        bank_df[bank_date_col] = parse_mmddyyyy(bank_df[bank_date_col])
+        our_df_filtered[our_date_col] = parse_mmddyyyy(
+            our_df_filtered[our_date_col])
+        bank_df_filtered[bank_date_col] = parse_mmddyyyy(
+            bank_df_filtered[bank_date_col])
 
-    # --- Step 4: Group by numeric value ---
+    # --- Step 5: Group by numeric value ---
     our_groups = {val: sub_df for val,
-                  sub_df in our_df.groupby(our_value_column)}
+                  sub_df in our_df_filtered.groupby(our_value_column)}
     bank_groups = {val: sub_df for val,
-                   sub_df in bank_df.groupby(bank_value_column)}
+                   sub_df in bank_df_filtered.groupby(bank_value_column)}
 
     results = []
     all_values = sorted(set(our_groups.keys()) | set(
@@ -75,7 +82,7 @@ def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit
     def fmt_date(dt):
         return dt.strftime("%m/%d/%Y") if pd.notnull(dt) else "XXX"
 
-    # --- Step 5: Iterate through each value group ---
+    # --- Step 6: Iterate through each value group ---
     for val in all_values:
         our_group = our_groups.get(val, pd.DataFrame())
         bank_group = bank_groups.get(val, pd.DataFrame())
@@ -83,7 +90,7 @@ def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit
         matched_bank_indices = set()
         matched_our_indices = set()
 
-        # --- 5a: Match by value & exact date ---
+        # --- 6a: Match by value & exact date ---
         for our_idx, our_row in our_group.iterrows():
             our_date = our_row[our_date_col] if our_date_col else None
             for bank_idx, bank_row in bank_group.iterrows():
@@ -117,7 +124,7 @@ def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit
                             row[f"Bank_{col}"] = bank_row[bank_columns[col]]
                     results.append(row)
 
-        # --- 5b: Match remaining by value and closest date ---
+        # --- 6b: Match remaining by value and closest date ---
         our_unmatched = our_group.loc[~our_group.index.isin(
             matched_our_indices)]
         bank_unmatched = bank_group.loc[~bank_group.index.isin(
@@ -168,7 +175,7 @@ def create_matchbooks(our_df, bank_df, our_columns, bank_columns, ours_is_credit
                     row[f"Bank_{col}"] = bank_row[bank_columns[col]]
             results.append(row)
 
-        # --- 5c: Remaining items = MISMATCH ---
+        # --- 6c: Remaining items = MISMATCH ---
         our_remaining = our_group.loc[~our_group.index.isin(
             matched_our_indices)]
         bank_remaining = bank_group.loc[~bank_group.index.isin(
