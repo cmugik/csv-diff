@@ -2,3 +2,6 @@ venv/
 *.csv
 *.xls*
 *\.~lock*
+
+!*TestSageInput*.csv
+!*TestBankInput*.csv
