@@ -466,8 +466,18 @@ class CSVMatcherApp:
             for col in columns
             if col.lower() not in VALUE_COLUMNS and col != date_col
         ]
+        file_name = self.sage_file_name if col_type == "sage" else self.bank_file_name
 
         row_idx = 0
+        tk.Label(
+            frame,
+            text=file_name,
+            fg="gray30",
+            wraplength=280,
+            justify="left",
+        ).grid(row=row_idx, column=0, columnspan=2, padx=5, pady=(8, 6), sticky="w")
+        row_idx += 1
+
         tk.Label(frame, text="Date column", font=("TkDefaultFont", 9, "bold")).grid(
             row=row_idx, column=0, padx=5, pady=(8, 2), sticky="w"
         )
