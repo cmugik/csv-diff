@@ -5,3 +5,7 @@ venv/
 
 !*TestSageInput*.csv
 !*TestBankInput*.csv
+*.txt
+!requirements.txt
+
+*.pyc
