@@ -89,9 +89,15 @@ def create_matchbooks(
     bank_columns,
     sage_value_column,
     bank_value_column,
-    date_formats=None,
+    sage_date_formats=None,
+    bank_date_formats=None,
 ):
-    date_formats = date_formats or DATE_FORMAT_OPTIONS["MM/DD/YYYY or MM/DD/YY"]
+    sage_date_formats = (
+        sage_date_formats or DATE_FORMAT_OPTIONS["MM/DD/YYYY or MM/DD/YY"]
+    )
+    bank_date_formats = (
+        bank_date_formats or DATE_FORMAT_OPTIONS["MM/DD/YYYY or MM/DD/YY"]
+    )
     sage_df = sage_df.copy()
     bank_df = bank_df.copy()
 
@@ -112,10 +118,10 @@ def create_matchbooks(
 
     if sage_date_col and bank_date_col:
         sage_df_filtered[sage_date_col] = parse_dates(
-            sage_df_filtered[sage_date_col], date_formats
+            sage_df_filtered[sage_date_col], sage_date_formats
         )
         bank_df_filtered[bank_date_col] = parse_dates(
-            bank_df_filtered[bank_date_col], date_formats
+            bank_df_filtered[bank_date_col], bank_date_formats
         )
 
     sage_groups = {
@@ -321,15 +327,12 @@ class CSVMatcherApp:
         )
         self.match_mode_menu.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-        tk.Label(self.top_frame, text="Date format").grid(
-            row=2, column=0, padx=5, pady=5, sticky="w"
-        )
-        self.date_format = tk.StringVar(value=next(iter(DATE_FORMAT_OPTIONS)))
-        self.date_format_menu = tk.OptionMenu(
-            self.top_frame, self.date_format, *DATE_FORMAT_OPTIONS.keys()
-        )
-        self.date_format_menu.grid(
-            row=2, column=1, padx=5, pady=5, sticky="ew")
+        self.sage_date_format = tk.StringVar(
+            value=next(iter(DATE_FORMAT_OPTIONS)))
+        self.bank_date_format = tk.StringVar(
+            value=next(iter(DATE_FORMAT_OPTIONS)))
+        self.sage_date_format_menu = None
+        self.bank_date_format_menu = None
 
         self.match_btn = tk.Button(
             self.top_frame,
@@ -337,7 +340,7 @@ class CSVMatcherApp:
             command=self.match_csvs,
             state=tk.DISABLED,
         )
-        self.match_btn.grid(row=3, column=0, columnspan=2,
+        self.match_btn.grid(row=2, column=0, columnspan=2,
                             padx=5, pady=5, sticky="ew")
 
         self.status_var = tk.StringVar(value="Load both CSVs to begin.")
@@ -345,7 +348,7 @@ class CSVMatcherApp:
             self.top_frame, textvariable=self.status_var, fg="gray20"
         )
         self.status_label.grid(
-            row=4, column=0, columnspan=2, padx=5, pady=(2, 0), sticky="w"
+            row=3, column=0, columnspan=2, padx=5, pady=(2, 0), sticky="w"
         )
 
         self.columns_frame = tk.Frame(root)
@@ -394,7 +397,8 @@ class CSVMatcherApp:
     def match_csvs(self):
         sage_columns = self.collect_columns(self.sage_entries)
         bank_columns = self.collect_columns(self.bank_entries)
-        date_formats = DATE_FORMAT_OPTIONS[self.date_format.get()]
+        sage_date_formats = DATE_FORMAT_OPTIONS[self.sage_date_format.get()]
+        bank_date_formats = DATE_FORMAT_OPTIONS[self.bank_date_format.get()]
         match_pairs = MATCH_MODES[self.match_mode.get()]
         output_files = []
 
@@ -408,7 +412,8 @@ class CSVMatcherApp:
                     bank_columns,
                     sage_value_column,
                     bank_value_column,
-                    date_formats,
+                    sage_date_formats,
+                    bank_date_formats,
                 )
                 filename = (
                     f"Matched_Output_Sage{sage_value_column}-"
@@ -435,7 +440,9 @@ class CSVMatcherApp:
         self.bank_file_btn.config(state=state)
         self.match_btn.config(state=state)
         self.match_mode_menu.config(state=state)
-        self.date_format_menu.config(state=state)
+        for menu in (self.sage_date_format_menu, self.bank_date_format_menu):
+            if menu is not None:
+                menu.config(state=state)
         if is_processing:
             self.status_var.set("Processing... please wait.")
             self.root.update_idletasks()
@@ -447,6 +454,10 @@ class CSVMatcherApp:
         for child in frame.winfo_children():
             child.destroy()
         entries.clear()
+        if col_type == "sage":
+            self.sage_date_format_menu = None
+        else:
+            self.bank_date_format_menu = None
 
         columns = df.columns.tolist()
         date_col = find_date_column(columns)
@@ -464,6 +475,8 @@ class CSVMatcherApp:
 
         if date_col:
             self.add_column_entry(date_col, row_idx, col_type, is_date=True)
+            row_idx += 1
+            self.add_date_format_menu(row_idx, col_type)
         else:
             tk.Label(frame, text="No date column detected", fg="gray40").grid(
                 row=row_idx, column=0, columnspan=2, padx=5, pady=5, sticky="w"
@@ -501,6 +514,24 @@ class CSVMatcherApp:
 
         entries.append(
             {"entry": entry, "delete_btn": delete_btn, "is_date": is_date})
+
+    def add_date_format_menu(self, row_idx, col_type):
+        frame = self.sage_frame if col_type == "sage" else self.bank_frame
+        date_format_var = (
+            self.sage_date_format if col_type == "sage" else self.bank_date_format
+        )
+
+        date_format_menu = tk.OptionMenu(
+            frame, date_format_var, *DATE_FORMAT_OPTIONS.keys()
+        )
+        date_format_menu.grid(
+            row=row_idx, column=0, padx=5, pady=(0, 4), sticky="ew"
+        )
+
+        if col_type == "sage":
+            self.sage_date_format_menu = date_format_menu
+        else:
+            self.bank_date_format_menu = date_format_menu
 
     def delete_entry(self, entry, delete_btn, entries):
         matching_entry = next(
